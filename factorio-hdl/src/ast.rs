@@ -1,13 +1,9 @@
-#![warn(dead_code)]
 // TODO: faster hasher
-use std::{collections::HashMap, num::Wrapping};
+use std::collections::HashMap;
 pub use Color::*;
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Ident(pub u32);
-
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub struct BundleState(HashMap<Ident, Wrapping<i32>>);
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Color {
@@ -34,10 +30,10 @@ pub struct Connector {
 
 // TODO: 1.1.13 Decider Anything signal
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum SignalOrConst {
     Signal(Ident),
-    ConstValue(i32),
+    ConstValue(Expr),
 }
 
 // TODO: AbstractSignalOrConst
@@ -49,23 +45,24 @@ pub enum AbstractSignal {
     Each,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub struct Combinator {
-    pub input: Connector,
-    pub output: Connector,
-    pub specifics: CombinatorType,
-}
-
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub enum CombinatorType {
-    Constant(BundleState),
+#[derive(Clone, Debug)]
+pub enum Combinator {
+    Constant {
+        output: Connector,
+        out: Ident,
+        value: Expr,
+    },
     Arithmetic {
+        input: Connector,
+        output: Connector,
         left: AbstractSignal,
         right: SignalOrConst,
         out: AbstractSignal,
         op: ArithOp,
     },
     Decider {
+        input: Connector,
+        output: Connector,
         left: AbstractSignal,
         right: SignalOrConst,
         out: AbstractSignal,
@@ -73,8 +70,6 @@ pub enum CombinatorType {
         output_one: bool,
     },
 }
-
-pub const MAX_SIGNALS_PER_CONST_COMBINATOR: usize = 15;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ArithOp {
@@ -112,6 +107,7 @@ pub struct Module {
 #[derive(Debug)]
 pub struct Block {
     pub networks: HashMap<Ident, Network>,
+    pub param_decls: HashMap<Ident, Expr>,
     pub statements: Vec<Statement>,
 }
 
@@ -145,7 +141,7 @@ pub struct ArgNet {
     pub signal_map: HashMap<Ident, Ident>,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Expr {
     Literal(i32),
     Param(Ident),

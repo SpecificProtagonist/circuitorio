@@ -1,8 +1,8 @@
-mod model;
+mod ast;
 mod parse;
 
 fn main() {
-    let code = std::fs::read_to_string("syntax.fhdl").unwrap();
+    let code = std::fs::read_to_string("test-syntax.fhdl").unwrap();
     let mut ctx = parse::Ctx::default();
     let module = parse::fhdl::modules(&code, &mut ctx);
     match module {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::model::*;
+use crate::ast::*;
 
 #[derive(Default)]
 pub struct Ctx {
@@ -23,7 +23,8 @@ impl Ctx {
 
 enum StatementOrDecl {
     Statement(Statement),
-    Decl(Ident, Network),
+    NetDecl(Ident, Network),
+    ParamDecl(Ident, Expr),
 }
 
 peg::parser! { pub grammar fhdl() for str {
@@ -55,12 +56,14 @@ peg::parser! { pub grammar fhdl() for str {
     rule block(ctx: &mut Ctx) -> Block = "{" _ items:statement_or_decl(ctx)* "}" _ {
         let mut block = Block {
             networks: HashMap::new(),
+            param_decls: HashMap::new(),
             statements: Vec::new()
         };
         for item in items {
             match item {
                 StatementOrDecl::Statement(stm) => block.statements.push(stm),
-                StatementOrDecl::Decl(id, net) => {block.networks.insert(id, net);}
+                StatementOrDecl::NetDecl(id, net) => {block.networks.insert(id, net);}
+                StatementOrDecl::ParamDecl(id, expr) => {block.param_decls.insert(id, expr);}
             }
         }
         block
@@ -68,7 +71,8 @@ peg::parser! { pub grammar fhdl() for str {
 
     rule statement_or_decl(ctx: &mut Ctx) -> StatementOrDecl =
         a:statement(ctx) {StatementOrDecl::Statement(a)} /
-        a:net_decl(ctx) {StatementOrDecl::Decl(a.0, a.1)}
+        a:net_decl(ctx) {StatementOrDecl::NetDecl(a.0, a.1)} /
+        a:param_decl(ctx) {StatementOrDecl::ParamDecl(a.0, a.1)}
 
     rule net_decl(ctx: &mut Ctx) -> (Ident, Network) =
         "net" _ "(" _ color:color() ")" _ name:ident(ctx) "[" _ signals:ident(ctx)+ "]" _
@@ -76,60 +80,73 @@ peg::parser! { pub grammar fhdl() for str {
         (name, Network{color, signals})
     }
 
+    rule param_decl(ctx: &mut Ctx) -> (Ident, Expr) =
+        name:ident(ctx) "=" _ expr:expr(ctx) {(name, expr)}
+
     rule color() -> Color = red() / green()
     rule red() -> Color = "red" _ {Red}
     rule green() -> Color = "green" _ {Green}
 
     rule statement(ctx: &mut Ctx) -> Statement =
-        combinator:(arith(ctx)/decider(ctx)) {Statement::Combinator(combinator)} /
+        combinator:(arith(ctx)/decider(ctx)/constant(ctx)) {Statement::Combinator(combinator)} /
         instance:instance(ctx) {Statement::Instance(instance)} /
         looping:looping(ctx) {Statement::Loop(looping)} /
         block:block(ctx) {Statement::Block(block)}
 
     rule arith(ctx: &mut Ctx) -> Combinator =
+        output:connector(ctx)
+        "[" _ out:abstract_signal(ctx) "]" _
+        "<-" _
         input:connector(ctx)
         "[" _ left:abstract_signal(ctx)
         op: arithmetic_op()
         right:signal_or_const(ctx) "]" _
-        "->" _
-        output:connector(ctx)
-        "[" _ out:abstract_signal(ctx) "]" _ {
-            Combinator{
+        {
+            Combinator::Arithmetic{
                 input,
                 output,
-                specifics: CombinatorType::Arithmetic {
-                    left,
-                    right,
-                    out,
-                    op
-                }
+                left,
+                right,
+                out,
+                op
             }
     }
 
     rule decider(ctx: &mut Ctx) -> Combinator =
+        output:connector(ctx)
+        "[" _ out:abstract_signal(ctx) "]" _
+        "<-" _
         input:connector(ctx)
         "[" _ left:abstract_signal(ctx)
         op: decide_op()
         right:signal_or_const(ctx) "]" _
-        "->" _
         output_kind: $("value" / "one") _
-        output:connector(ctx)
-        "[" _ out:abstract_signal(ctx) "]" _ {?
-            Ok(Combinator{
+        {?
+            Ok(Combinator::Decider{
                 input,
                 output,
-                specifics: CombinatorType::Decider {
-                    left,
-                    right,
-                    out,
-                    op,
-                    output_one: match output_kind {
-                        "one" => true,
-                        "value" => false,
-                        _ => return Err("expected 'one' or 'value'")
-                    }
+                left,
+                right,
+                out,
+                op,
+                output_one: match output_kind {
+                    "one" => true,
+                    "value" => false,
+                    _ => return Err("expected 'one' or 'value'")
                 }
             })
+    }
+
+    rule constant(ctx: &mut Ctx) -> Combinator =
+        output:connector(ctx)
+        "[" _ out:ident(ctx) "]" _
+        "<-" _ value:expr(ctx)
+    {
+        Combinator::Constant{
+            output,
+            out,
+            value
+        }
     }
 
     // During parsing, no info about the networks is available.
@@ -178,7 +195,7 @@ peg::parser! { pub grammar fhdl() for str {
         Loop { iter, min, max, body }
     }
 
-    rule ident(ctx: &mut Ctx) -> Ident = quiet!{name:$(['a'..='z'| 'A'..='Z'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _ {
+    rule ident(ctx: &mut Ctx) -> Ident = quiet!{name:$(['a'..='z'| 'A'..='Z' | '_'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _ {
         ctx.intern(name)
     }} / expected!("identifier")
 
@@ -219,7 +236,7 @@ peg::parser! { pub grammar fhdl() for str {
 
     rule signal_or_const(ctx: &mut Ctx) -> SignalOrConst =
         signal:ident(ctx) {SignalOrConst::Signal(signal)} /
-        num:number() {SignalOrConst::ConstValue(num)}
+        expr:expr(ctx) {SignalOrConst::ConstValue(expr)}
 
     rule expr(ctx: &mut Ctx) -> Expr =
         num:number() {Expr::Literal(num)} /

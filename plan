@@ -1,0 +1,4 @@
+Description of modules via DSL
+modules can include modules
+allow specifying functions that emulate a module
+run those in parallel with simulated module to check for correctness
