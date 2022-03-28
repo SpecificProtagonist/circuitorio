@@ -2,6 +2,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 
 use crate::ast::{self, Expr, Ident, StatementInner, Strings};
+use crate::interp;
 use crate::model::{self, Color, Signal};
 
 const MAX_SIGNALS_PER_CONST_COMBINATOR: usize = 15;
@@ -50,13 +51,13 @@ pub fn lower(
                 StatementInner::Block(_) => todo!(),
                 StatementInner::Instance(_) => todo!(),
                 StatementInner::Loop(_) => todo!(),
-                StatementInner::Combinator(combinator) => match *combinator {
+                StatementInner::Combinator(combinator) => match combinator {
                     ast::Combinator::Constant { output, out, value } => {
-                        let connector = connector(ctx, &net_ids, &networks, output)?;
-                        let signal = signal(ctx, &signal_ids, &networks, output, out)?;
+                        let connector = connector(ctx, &net_ids, &networks, *output)?;
+                        let signal = signal(ctx, &signal_ids, &networks, *output, *out)?;
                         let combinator = constants.entry(connector).or_default();
                         let slot = combinator.entry(signal).or_default();
-                        let value = eval(ctx, &params, value)?;
+                        let value = eval(ctx, &params, &value)?;
                         *slot = slot.wrapping_add(value);
                         if combinator.len() > MAX_SIGNALS_PER_CONST_COMBINATOR {
                             todo!()
@@ -70,11 +71,11 @@ pub fn lower(
                         out,
                         op,
                     } => {
-                        let connector_in = connector(ctx, &net_ids, &networks, input)?;
-                        let connector_out = connector(ctx, &net_ids, &networks, output)?;
+                        let connector_in = connector(ctx, &net_ids, &networks, *input)?;
+                        let connector_out = connector(ctx, &net_ids, &networks, *output)?;
                         let left = match left {
                             ast::AbstractSignal::Signal(name) => model::AbstractSignal::Signal(
-                                signal(ctx, &signal_ids, &networks, input, name)?,
+                                signal(ctx, &signal_ids, &networks, *input, *name)?,
                             ),
                             ast::AbstractSignal::Any => model::AbstractSignal::Any,
                             ast::AbstractSignal::Every => model::AbstractSignal::Every,
@@ -90,18 +91,18 @@ pub fn lower(
                                         ctx,
                                         &signal_ids,
                                         &networks,
-                                        input,
-                                        name,
+                                        *input,
+                                        *name,
                                     )?)
                                 }
                             }
                             ast::SignalOrConst::ConstValue(value) => {
-                                model::SignalOrConst::ConstValue(eval(ctx, &params, value)?)
+                                model::SignalOrConst::ConstValue(eval(ctx, &params, &value)?)
                             }
                         };
                         let out = match out {
                             ast::AbstractSignal::Signal(name) => model::AbstractSignal::Signal(
-                                signal(ctx, &signal_ids, &networks, output, name)?,
+                                signal(ctx, &signal_ids, &networks, *output, *name)?,
                             ),
                             ast::AbstractSignal::Any => model::AbstractSignal::Any,
                             ast::AbstractSignal::Every => model::AbstractSignal::Every,
@@ -113,7 +114,7 @@ pub fn lower(
                             left,
                             right,
                             out,
-                            op,
+                            op: *op,
                         });
                     }
                     ast::Combinator::Decider {
@@ -125,11 +126,11 @@ pub fn lower(
                         op,
                         output_one,
                     } => {
-                        let connector_in = connector(ctx, &net_ids, &networks, input)?;
-                        let connector_out = connector(ctx, &net_ids, &networks, output)?;
+                        let connector_in = connector(ctx, &net_ids, &networks, *input)?;
+                        let connector_out = connector(ctx, &net_ids, &networks, *output)?;
                         let left = match left {
                             ast::AbstractSignal::Signal(name) => model::AbstractSignal::Signal(
-                                signal(ctx, &signal_ids, &networks, input, name)?,
+                                signal(ctx, &signal_ids, &networks, *input, *name)?,
                             ),
                             ast::AbstractSignal::Any => model::AbstractSignal::Any,
                             ast::AbstractSignal::Every => model::AbstractSignal::Every,
@@ -145,18 +146,18 @@ pub fn lower(
                                         ctx,
                                         &signal_ids,
                                         &networks,
-                                        input,
-                                        name,
+                                        *input,
+                                        *name,
                                     )?)
                                 }
                             }
                             ast::SignalOrConst::ConstValue(value) => {
-                                model::SignalOrConst::ConstValue(eval(ctx, &params, value)?)
+                                model::SignalOrConst::ConstValue(eval(ctx, &params, &value)?)
                             }
                         };
                         let out = match out {
                             ast::AbstractSignal::Signal(name) => model::AbstractSignal::Signal(
-                                signal(ctx, &signal_ids, &networks, output, name)?,
+                                signal(ctx, &signal_ids, &networks, *output, *name)?,
                             ),
                             ast::AbstractSignal::Any => model::AbstractSignal::Any,
                             ast::AbstractSignal::Every => model::AbstractSignal::Every,
@@ -168,8 +169,8 @@ pub fn lower(
                             left,
                             right,
                             out,
-                            op,
-                            output_one,
+                            op: *op,
+                            output_one: *output_one,
                         });
                     }
                 },
@@ -205,7 +206,7 @@ pub fn lower(
                     if signal_ids.contains_key(name) {
                         bail!("ambiguity between param and signal {}", &ctx[*name])
                     }
-                    params.insert(*name, eval(ctx, &params, *value)?);
+                    params.insert(*name, eval(ctx, &params, value)?);
                 }
             }
         };
@@ -306,12 +307,13 @@ fn signal(
         .ok_or_else(|| anyhow!("undefined signal {}", &ctx[name]))
 }
 
-fn eval(ctx: &Strings, params: &HashMap<Ident, i32>, expr: Expr) -> Result<i32> {
-    match expr {
-        Expr::Literal(value) => Ok(value),
+fn eval(ctx: &Strings, params: &HashMap<Ident, i32>, expr: &Expr) -> Result<i32> {
+    Ok(match expr {
+        Expr::Literal(value) => *value,
         Expr::Param(name) => params
             .get(&name)
             .copied()
-            .ok_or_else(|| anyhow!("undefined param {}", &ctx[name])),
-    }
+            .ok_or_else(|| anyhow!("undefined param {}", &ctx[*name]))?,
+        Expr::Calc(x, y, op) => interp::calc(eval(ctx, params, &x)?, eval(ctx, params, &y)?, *op),
+    })
 }

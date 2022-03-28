@@ -10,9 +10,9 @@ peg::parser! { pub grammar fhdl() for str {
     pub rule modules(ctx: &mut Strings) -> Vec<Module> = module(ctx)*
 
     rule module(ctx: &mut Strings) -> Module =
-        "module" _ name:ident(ctx)
-        params:("<" _ items:ident(ctx)* ">" _ {items})?
-        "(" _ io:net_decl(ctx)* ")" _
+        _ "module" name:ident(ctx)
+        params:("<" items:ident(ctx)* ">" _ {items})?
+        "(" io:net_decl(ctx)* ")" _
         body: block(ctx)
     {
         let mut args = HashMap::new();
@@ -27,7 +27,7 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    rule block(ctx: &mut Strings) -> Vec<Statement> = "{" _ items:statement(ctx)* "}" _ {
+    rule block(ctx: &mut Strings) -> Vec<Statement> = _ "{" items:statement(ctx)* "}" _ {
         items
     }
 
@@ -43,7 +43,7 @@ peg::parser! { pub grammar fhdl() for str {
         block:block(ctx) {StatementInner::Block(block)}
 
     rule net_decl(ctx: &mut Strings) -> Network =
-        "net" _ "(" _ color:color() ")" _ name:ident(ctx) "[" _ signals:ident(ctx)+ "]" _
+        _ "net" _ "(" color:color() ")" name:ident(ctx) "[" signals:ident(ctx)+ "]" _
     {
         Network{name, color, signals}
     }
@@ -77,10 +77,10 @@ peg::parser! { pub grammar fhdl() for str {
 
     rule decider(ctx: &mut Strings) -> Combinator =
         output:connector(ctx)
-        "[" _ out:abstract_signal(ctx) "]" _
-        "<-" _
+        "[" out:abstract_signal(ctx) "]" _
+        "<-"
         input:connector(ctx)
-        "[" _ left:abstract_signal(ctx)
+        "[" left:abstract_signal(ctx)
         op: decide_op()
         right:signal_or_const(ctx) "]" _
         output_kind: $("value" / "one") _
@@ -103,7 +103,7 @@ peg::parser! { pub grammar fhdl() for str {
     rule constant(ctx: &mut Strings) -> Combinator =
         output:connector(ctx)
         "[" _ out:ident(ctx) "]" _
-        "<-" _ value:expr(ctx)
+        "<-" value:expr(ctx)
     {
         Combinator::Constant{
             output,
@@ -116,14 +116,14 @@ peg::parser! { pub grammar fhdl() for str {
         name:ident(ctx) {
             Connector(name, None)
         } /
-        "(" _ first:ident(ctx) second:ident(ctx) ")" _ {
+        _ "(" first:ident(ctx) second:ident(ctx) ")" _ {
                 Connector (first, Some(second))
         }
 
     rule instance(ctx: &mut Strings) -> Instance =
         name:ident(ctx)
-        params:("<" _ items:expr(ctx)* ">" {items})? _
-        "(" _ args:arg_net(ctx)+ ")" _
+        params:("<" items:expr(ctx)* ">" {items})?
+        "(" args:arg_net(ctx)+ ")" _
     {
         Instance {
             name,
@@ -132,7 +132,7 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    rule arg_net(ctx: &mut Strings) -> ArgNet = name:ident(ctx) _ "[" _ signals:arg_signal(ctx)+ "]" _ {
+    rule arg_net(ctx: &mut Strings) -> ArgNet = name:ident(ctx) "[" signals:arg_signal(ctx)+ "]" _ {
         let mut signal_map = HashMap::new();
         for (argname, localname) in signals {
             signal_map.insert(argname, localname);
@@ -143,24 +143,24 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    rule arg_signal(ctx: &mut Strings) -> (Ident, Ident) = argname: (a:ident(ctx) _ ":"{a})? _ name: ident(ctx) {
+    rule arg_signal(ctx: &mut Strings) -> (Ident, Ident) = argname: (a:ident(ctx) ":"{a})? name: ident(ctx) {
         (argname.unwrap_or(name), name)
     }
 
     rule looping(ctx: &mut Strings) -> Loop =
-        "loop" _ iter:ident(ctx)
-        "from" _ min:expr(ctx)
-        "to" _ max:expr(ctx)
+        _ "loop" _ iter:ident(ctx)
+        _ "from" _ min:expr(ctx)
+        _ "to" _ max:expr(ctx)
         body:block(ctx)
     {
         Loop { iter, min, max, body }
     }
 
-    rule ident(ctx: &mut Strings) -> Ident = quiet!{name:$(['a'..='z'| 'A'..='Z' | '_'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _ {
+    rule ident(ctx: &mut Strings) -> Ident = quiet!{_ name:$(['a'..='z'| 'A'..='Z' | '_'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _ {
         ctx.intern(name)
     }} / expected!("identifier")
 
-    rule arithmetic_op() -> ArithOp = op: $("+" / "-" / "*" / "/" / "%" / "**" / "<<" / ">>" / "&" / "|" / "^") _ {
+    rule arithmetic_op() -> ArithOp = _ op: $("+" / "-" / "*" / "/" / "%" / "**" / "<<" / ">>" / "&" / "|" / "^") _ {
         match op {
             "+" => ArithOp::Add,
             "-" => ArithOp::Sub,
@@ -177,7 +177,7 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    rule decide_op() -> DecideOp = op: $(">" / "<" / "==" / ">=" / "<=" / "!=") _ {
+    rule decide_op() -> DecideOp = _ op: $(">" / "<" / "==" / ">=" / "<=" / "!=") _ {
         match op {
             ">" => DecideOp::Greater,
             "<" => DecideOp::Less,
@@ -190,20 +190,39 @@ peg::parser! { pub grammar fhdl() for str {
     }
 
     rule abstract_signal(ctx: &mut Strings) -> AbstractSignal =
-        "any" _ {AbstractSignal::Any} /
-        "every" _ {AbstractSignal::Every} /
-        "each" _ {AbstractSignal::Each} /
+        _ "any" _ {AbstractSignal::Any} /
+        _ "every" _ {AbstractSignal::Every} /
+        _ "each" _ {AbstractSignal::Each} /
         name:ident(ctx) {AbstractSignal::Signal(name)}
 
     rule signal_or_const(ctx: &mut Strings) -> SignalOrConst =
         signal:ident(ctx) {SignalOrConst::Signal(signal)} /
         expr:expr(ctx) {SignalOrConst::ConstValue(expr)}
 
+    // Can't use the inbuild precedence! because it doesn't allow ctx mutation
     rule expr(ctx: &mut Strings) -> Expr =
+        left:expr_part(ctx) "+" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Add)} /
+        left:expr_part(ctx) "-" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        left:expr_part(ctx) "*" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        left:expr_part(ctx) "/" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        left:expr_part(ctx) "%" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        left:expr_part(ctx) "**" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        left:expr_part(ctx) "<<" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        left:expr_part(ctx) ">>" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        left:expr_part(ctx) "&" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        left:expr_part(ctx) "|" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        left:expr_part(ctx) "^" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
+        expr_atom(ctx)
+
+    rule expr_part(ctx: &mut Strings) -> Expr =
+        _ "(" expr:expr(ctx) ")" _ {expr} /
+        expr_atom(ctx)
+
+    rule expr_atom(ctx: &mut Strings) -> Expr =
         num:number() {Expr::Literal(num)} /
         param:ident(ctx) {Expr::Param(param)}
 
-    rule number() -> i32 = quiet!{minus: "-"? num: (hexadecimal() / decimal()) _ {
+    rule number() -> i32 = quiet!{_ minus: "-"? _ num: (hexadecimal() / decimal()) _ {
         if minus.is_some() {
             -num
         } else {

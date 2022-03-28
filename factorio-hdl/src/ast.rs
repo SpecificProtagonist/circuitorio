@@ -47,7 +47,7 @@ pub struct Connector(pub Ident, pub Option<Ident>);
 
 /// As the parser can't differentiate between signal and param names,
 /// a simple param will be represented as Self::Signal
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum SignalOrConst {
     Signal(Ident),
     ConstValue(Expr),
@@ -62,7 +62,7 @@ pub enum AbstractSignal {
     Each,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Combinator {
     Constant {
         output: Connector,
@@ -134,9 +134,9 @@ pub struct ArgNet {
     pub signal_map: HashMap<Ident, Ident>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Literal(i32),
     Param(Ident),
-    // TODO: arithmetic expression
+    Calc(Box<Expr>, Box<Expr>, ArithOp),
 }

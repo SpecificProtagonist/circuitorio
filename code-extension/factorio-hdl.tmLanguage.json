@@ -1,4 +1,5 @@
 {
+	"todo": "hightlight arithmetic in yellow and bitwise in cyan",
 	"scopeName": "source.factorio-hdl",
 	"patterns": [
 		{

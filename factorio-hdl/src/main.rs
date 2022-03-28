@@ -1,6 +1,7 @@
 #![feature(try_blocks)]
 
 mod ast;
+mod interp;
 mod lowering;
 mod model;
 mod parse;
