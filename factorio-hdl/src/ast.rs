@@ -1,35 +1,52 @@
+use crate::model::{ArithOp, DecideOp};
 // TODO: faster hasher
-use std::collections::HashMap;
-pub use Color::*;
+pub use crate::model::Color;
+use std::{collections::HashMap, ops::Index};
+
+#[derive(Default)]
+pub struct Strings {
+    pub ident_ids: HashMap<String, Ident>,
+    pub idents: Vec<String>,
+}
+
+impl Strings {
+    pub fn intern(&mut self, str: &str) -> Ident {
+        if let Some(&id) = self.ident_ids.get(str) {
+            id
+        } else {
+            let id = Ident(self.ident_ids.len() as u32);
+            self.ident_ids.insert(str.into(), id);
+            self.idents.push(str.into());
+            id
+        }
+    }
+}
+
+impl Index<Ident> for Strings {
+    type Output = str;
+
+    fn index(&self, index: Ident) -> &Self::Output {
+        &self.idents[index.0 as usize]
+    }
+}
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Ident(pub u32);
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum Color {
-    Red,
-    Green,
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct NetworkId(u32);
-
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Network {
+    pub name: Ident,
     pub color: Color,
     pub signals: Vec<Ident>,
 }
 
-// During parsing, no info about the networks is available.
-// Colors will be wrong untill they get fixed up.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct Connector {
-    pub red: Option<Ident>,
-    pub green: Option<Ident>,
-}
+pub struct Connector(pub Ident, pub Option<Ident>);
 
 // TODO: 1.1.13 Decider Anything signal
 
+/// As the parser can't differentiate between signal and param names,
+/// a simple param will be represented as Self::Signal
 #[derive(Copy, Clone, Debug)]
 pub enum SignalOrConst {
     Signal(Ident),
@@ -45,7 +62,7 @@ pub enum AbstractSignal {
     Each,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Combinator {
     Constant {
         output: Connector,
@@ -71,52 +88,28 @@ pub enum Combinator {
     },
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum ArithOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    Exp,
-    ShiftLeft,
-    ShiftRight,
-    And,
-    Or,
-    Xor,
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum DecideOp {
-    Greater,
-    Less,
-    Equal,
-    GreaterOrEqual,
-    LessOrEqual,
-    NotEqual,
-}
-
 #[derive(Debug)]
 pub struct Module {
     pub name: Ident,
     pub params: Vec<Ident>,
-    pub args: Vec<Ident>,
-    pub body: Block,
+    pub args: HashMap<Ident, Network>,
+    pub body: Vec<Statement>,
 }
 
 #[derive(Debug)]
-pub struct Block {
-    pub networks: HashMap<Ident, Network>,
-    pub param_decls: HashMap<Ident, Expr>,
-    pub statements: Vec<Statement>,
+pub struct Statement {
+    pub start_pos: usize,
+    pub inner: StatementInner,
 }
 
 #[derive(Debug)]
-pub enum Statement {
-    Block(Block),
+pub enum StatementInner {
+    Block(Vec<Statement>),
     Combinator(Combinator),
     Instance(Instance),
     Loop(Loop),
+    NetDecl(Network),
+    ParamDecl(Ident, Expr),
 }
 
 #[derive(Debug)]
@@ -131,7 +124,7 @@ pub struct Loop {
     pub iter: Ident,
     pub min: Expr,
     pub max: Expr,
-    pub body: Block,
+    pub body: Vec<Statement>,
 }
 
 #[derive(Debug)]
@@ -145,4 +138,5 @@ pub struct ArgNet {
 pub enum Expr {
     Literal(i32),
     Param(Ident),
+    // TODO: arithmetic expression
 }

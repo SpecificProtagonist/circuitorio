@@ -1,0 +1,40 @@
+module register_bank (
+    net(red) io [
+        write_addr
+        write_value
+        write_trigger
+        read_1_addr
+        read_1_value
+        read_2_addr
+        read_2_value
+    ]
+) {
+    net(red) write_value_neg [memory]
+    net(red) tmp [write_value]
+    tmp[write_value] <- io[write_trigger == 1] value
+    write_value_neg[memory] <- tmp[write_value * -1] 
+    net(red) read_1 [memory]
+    net(red) read_2 [memory]
+    io[read_1_value] <- read_1[memory+0]
+    io[read_2_value] <- read_2[memory+0]
+
+    number_of_registers = 32
+    #loop address from 0 to number_of_registers {
+        # tmp
+        address = 0
+        net(green) memory [memory]
+        # Memory loop
+        memory[memory] <- memory[memory]
+        # Readout
+        read_1[memory] <- (io memory)[read_1_addr == address] value
+        read_2[memory] <- (io memory)[read_2_addr == address] value
+        # Writeback 
+        net(red) override [write_trigger memory]
+        # Check write address
+        override[write_trigger] <- io[write_addr == address] value 
+        # Clear previous value, add new one
+        override[memory] <- (write_value_neg memory)[memory * -1]
+        # Check trigger
+        memory[memory] <- override[write_trigger == 1] value
+    #}
+}

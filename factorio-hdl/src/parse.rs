@@ -1,49 +1,23 @@
 use std::collections::HashMap;
 
 use crate::ast::*;
-
-#[derive(Default)]
-pub struct Ctx {
-    pub ident_ids: HashMap<String, Ident>,
-    pub idents: Vec<String>,
-}
-
-impl Ctx {
-    fn intern(&mut self, str: &str) -> Ident {
-        if let Some(&id) = self.ident_ids.get(str) {
-            id
-        } else {
-            let id = Ident(self.ident_ids.len() as u32);
-            self.ident_ids.insert(str.into(), id);
-            self.idents.push(str.into());
-            id
-        }
-    }
-}
-
-enum StatementOrDecl {
-    Statement(Statement),
-    NetDecl(Ident, Network),
-    ParamDecl(Ident, Expr),
-}
+use crate::model::{ArithOp, Color, DecideOp};
 
 peg::parser! { pub grammar fhdl() for str {
 
     rule _() = quiet!{[' ' | '\n' | '\t']* ("#"[^'\n']*"\n"?_)?}
 
-    pub rule modules(ctx: &mut Ctx) -> Vec<Module> = module(ctx)*
+    pub rule modules(ctx: &mut Strings) -> Vec<Module> = module(ctx)*
 
-    rule module(ctx: &mut Ctx) -> Module =
+    rule module(ctx: &mut Strings) -> Module =
         "module" _ name:ident(ctx)
         params:("<" _ items:ident(ctx)* ">" _ {items})?
         "(" _ io:net_decl(ctx)* ")" _
         body: block(ctx)
     {
-        let mut body = body;
-        let mut args = Vec::new();
-        for (name, net) in io {
-            args.push(name);
-            body.networks.insert(name, net);
+        let mut args = HashMap::new();
+        for net in io {
+            args.insert(net.name, net);
         }
         Module {
             name: name,
@@ -53,55 +27,44 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    rule block(ctx: &mut Ctx) -> Block = "{" _ items:statement_or_decl(ctx)* "}" _ {
-        let mut block = Block {
-            networks: HashMap::new(),
-            param_decls: HashMap::new(),
-            statements: Vec::new()
-        };
-        for item in items {
-            match item {
-                StatementOrDecl::Statement(stm) => block.statements.push(stm),
-                StatementOrDecl::NetDecl(id, net) => {block.networks.insert(id, net);}
-                StatementOrDecl::ParamDecl(id, expr) => {block.param_decls.insert(id, expr);}
-            }
-        }
-        block
+    rule block(ctx: &mut Strings) -> Vec<Statement> = "{" _ items:statement(ctx)* "}" _ {
+        items
     }
 
-    rule statement_or_decl(ctx: &mut Ctx) -> StatementOrDecl =
-        a:statement(ctx) {StatementOrDecl::Statement(a)} /
-        a:net_decl(ctx) {StatementOrDecl::NetDecl(a.0, a.1)} /
-        a:param_decl(ctx) {StatementOrDecl::ParamDecl(a.0, a.1)}
+    rule statement(ctx: &mut Strings) -> Statement =
+        start_pos:position!() inner:statement_inner(ctx) { Statement{ start_pos, inner } }
 
-    rule net_decl(ctx: &mut Ctx) -> (Ident, Network) =
+    rule statement_inner(ctx: &mut Strings) -> StatementInner =
+        a:net_decl(ctx) {StatementInner::NetDecl(a)} /
+        a:param_decl(ctx) /
+        combinator:(arith(ctx)/decider(ctx)/constant(ctx)) {StatementInner::Combinator(combinator)} /
+        instance:instance(ctx) {StatementInner::Instance(instance)} /
+        looping:looping(ctx) {StatementInner::Loop(looping)} /
+        block:block(ctx) {StatementInner::Block(block)}
+
+    rule net_decl(ctx: &mut Strings) -> Network =
         "net" _ "(" _ color:color() ")" _ name:ident(ctx) "[" _ signals:ident(ctx)+ "]" _
     {
-        (name, Network{color, signals})
+        Network{name, color, signals}
     }
 
-    rule param_decl(ctx: &mut Ctx) -> (Ident, Expr) =
-        name:ident(ctx) "=" _ expr:expr(ctx) {(name, expr)}
+    rule param_decl(ctx: &mut Strings) -> StatementInner =
+        name:ident(ctx) "=" _ expr:expr(ctx) {StatementInner::ParamDecl(name, expr)}
 
     rule color() -> Color = red() / green()
-    rule red() -> Color = "red" _ {Red}
-    rule green() -> Color = "green" _ {Green}
+    rule red() -> Color = "red" _ {Color::Red}
+    rule green() -> Color = "green" _ {Color::Green}
 
-    rule statement(ctx: &mut Ctx) -> Statement =
-        combinator:(arith(ctx)/decider(ctx)/constant(ctx)) {Statement::Combinator(combinator)} /
-        instance:instance(ctx) {Statement::Instance(instance)} /
-        looping:looping(ctx) {Statement::Loop(looping)} /
-        block:block(ctx) {Statement::Block(block)}
-
-    rule arith(ctx: &mut Ctx) -> Combinator =
+    rule arith(ctx: &mut Strings) -> Combinator =
         output:connector(ctx)
         "[" _ out:abstract_signal(ctx) "]" _
         "<-" _
         input:connector(ctx)
         "[" _ left:abstract_signal(ctx)
-        op: arithmetic_op()
-        right:signal_or_const(ctx) "]" _
+        calc: (op: arithmetic_op()
+        right:signal_or_const(ctx) {(op, right)})? "]" _
         {
+            let (op, right) = calc.unwrap_or((ArithOp::Xor, SignalOrConst::ConstValue(Expr::Literal(0))));
             Combinator::Arithmetic{
                 input,
                 output,
@@ -112,7 +75,7 @@ peg::parser! { pub grammar fhdl() for str {
             }
     }
 
-    rule decider(ctx: &mut Ctx) -> Combinator =
+    rule decider(ctx: &mut Strings) -> Combinator =
         output:connector(ctx)
         "[" _ out:abstract_signal(ctx) "]" _
         "<-" _
@@ -137,7 +100,7 @@ peg::parser! { pub grammar fhdl() for str {
             })
     }
 
-    rule constant(ctx: &mut Ctx) -> Combinator =
+    rule constant(ctx: &mut Strings) -> Combinator =
         output:connector(ctx)
         "[" _ out:ident(ctx) "]" _
         "<-" _ value:expr(ctx)
@@ -149,17 +112,15 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    // During parsing, no info about the networks is available.
-    // Colors will be wrong untill they get fixed up.
-    rule connector(ctx: &mut Ctx) -> Connector =
+    rule connector(ctx: &mut Strings) -> Connector =
         name:ident(ctx) {
-            Connector {red: Some(name), green: None}
+            Connector(name, None)
         } /
         "(" _ first:ident(ctx) second:ident(ctx) ")" _ {
-                Connector {red: Some(first), green: Some(second)}
+                Connector (first, Some(second))
         }
 
-    rule instance(ctx: &mut Ctx) -> Instance =
+    rule instance(ctx: &mut Strings) -> Instance =
         name:ident(ctx)
         params:("<" _ items:expr(ctx)* ">" {items})? _
         "(" _ args:arg_net(ctx)+ ")" _
@@ -171,7 +132,7 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    rule arg_net(ctx: &mut Ctx) -> ArgNet = name:ident(ctx) _ "[" _ signals:arg_signal(ctx)+ "]" _ {
+    rule arg_net(ctx: &mut Strings) -> ArgNet = name:ident(ctx) _ "[" _ signals:arg_signal(ctx)+ "]" _ {
         let mut signal_map = HashMap::new();
         for (argname, localname) in signals {
             signal_map.insert(argname, localname);
@@ -182,11 +143,11 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    rule arg_signal(ctx: &mut Ctx) -> (Ident, Ident) = argname: (a:ident(ctx) _ ":"{a})? _ name: ident(ctx) {
+    rule arg_signal(ctx: &mut Strings) -> (Ident, Ident) = argname: (a:ident(ctx) _ ":"{a})? _ name: ident(ctx) {
         (argname.unwrap_or(name), name)
     }
 
-    rule looping(ctx: &mut Ctx) -> Loop =
+    rule looping(ctx: &mut Strings) -> Loop =
         "loop" _ iter:ident(ctx)
         "from" _ min:expr(ctx)
         "to" _ max:expr(ctx)
@@ -195,7 +156,7 @@ peg::parser! { pub grammar fhdl() for str {
         Loop { iter, min, max, body }
     }
 
-    rule ident(ctx: &mut Ctx) -> Ident = quiet!{name:$(['a'..='z'| 'A'..='Z' | '_'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _ {
+    rule ident(ctx: &mut Strings) -> Ident = quiet!{name:$(['a'..='z'| 'A'..='Z' | '_'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _ {
         ctx.intern(name)
     }} / expected!("identifier")
 
@@ -228,17 +189,17 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    rule abstract_signal(ctx: &mut Ctx) -> AbstractSignal =
+    rule abstract_signal(ctx: &mut Strings) -> AbstractSignal =
         "any" _ {AbstractSignal::Any} /
         "every" _ {AbstractSignal::Every} /
         "each" _ {AbstractSignal::Each} /
         name:ident(ctx) {AbstractSignal::Signal(name)}
 
-    rule signal_or_const(ctx: &mut Ctx) -> SignalOrConst =
+    rule signal_or_const(ctx: &mut Strings) -> SignalOrConst =
         signal:ident(ctx) {SignalOrConst::Signal(signal)} /
         expr:expr(ctx) {SignalOrConst::ConstValue(expr)}
 
-    rule expr(ctx: &mut Ctx) -> Expr =
+    rule expr(ctx: &mut Strings) -> Expr =
         num:number() {Expr::Literal(num)} /
         param:ident(ctx) {Expr::Param(param)}
 
