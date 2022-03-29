@@ -27,7 +27,7 @@ module register_bank <number_of_registers> (
             write_value_neg[memory]
         )
         io[memory] <- 1
-        foo = 2 # TODO: arithmetic expressions
+        foo = 2
     }
     # TODO: arrays
     # net(red) with_array_array(0 to 4) [foo(0 to number_of_registers)]
@@ -41,7 +41,7 @@ module register <address> (
 ) {
     net(green) memory [memory]
     # Memory loop
-    memory[memory] <- memory[memory + 0]
+    memory[memory] <- memory[memory]
     # Readout
     read_1[memory] <- (io memory)[read_1_addr == address] value
     read_2[memory] <- (io memory)[read_2_addr == address] value

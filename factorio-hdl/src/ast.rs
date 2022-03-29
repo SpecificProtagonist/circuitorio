@@ -1,7 +1,8 @@
 use crate::model::{ArithOp, DecideOp};
 // TODO: faster hasher
 pub use crate::model::Color;
-use std::{collections::HashMap, ops::Index};
+use crate::HashMap;
+use std::ops::Index;
 
 #[derive(Default)]
 pub struct Strings {

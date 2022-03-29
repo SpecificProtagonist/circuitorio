@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use crate::HashMap;
 
 use crate::ast::*;
 use crate::model::{ArithOp, Color, DecideOp};
@@ -15,7 +15,7 @@ peg::parser! { pub grammar fhdl() for str {
         "(" io:net_decl(ctx)* ")" _
         body: block(ctx)
     {
-        let mut args = HashMap::new();
+        let mut args = HashMap::default();
         for net in io {
             args.insert(net.name, net);
         }
@@ -57,10 +57,10 @@ peg::parser! { pub grammar fhdl() for str {
 
     rule arith(ctx: &mut Strings) -> Combinator =
         output:connector(ctx)
-        "[" _ out:abstract_signal(ctx) "]" _
+        "[" _ out:abstract_signal_arith(ctx) "]" _
         "<-" _
         input:connector(ctx)
-        "[" _ left:abstract_signal(ctx)
+        "[" _ left:abstract_signal_arith(ctx)
         calc: (op: arithmetic_op()
         right:signal_or_const(ctx) {(op, right)})? "]" _
         {
@@ -77,10 +77,10 @@ peg::parser! { pub grammar fhdl() for str {
 
     rule decider(ctx: &mut Strings) -> Combinator =
         output:connector(ctx)
-        "[" out:abstract_signal(ctx) "]" _
+        "[" out:abstract_signal_decide(ctx) "]" _
         "<-"
         input:connector(ctx)
-        "[" left:abstract_signal(ctx)
+        "[" left:abstract_signal_decide(ctx)
         op: decide_op()
         right:signal_or_const(ctx) "]" _
         output_kind: $("value" / "one") _
@@ -133,7 +133,7 @@ peg::parser! { pub grammar fhdl() for str {
     }
 
     rule arg_net(ctx: &mut Strings) -> ArgNet = name:ident(ctx) "[" signals:arg_signal(ctx)+ "]" _ {
-        let mut signal_map = HashMap::new();
+        let mut signal_map = HashMap::default();
         for (argname, localname) in signals {
             signal_map.insert(argname, localname);
         }
@@ -156,7 +156,9 @@ peg::parser! { pub grammar fhdl() for str {
         Loop { iter, min, max, body }
     }
 
-    rule ident(ctx: &mut Strings) -> Ident = quiet!{_ name:$(['a'..='z'| 'A'..='Z' | '_'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _ {
+    rule ident(ctx: &mut Strings) -> Ident =
+        quiet!{_ !("each"/"any"/"every") name:$(['a'..='z'| 'A'..='Z' | '_'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _
+    {
         ctx.intern(name)
     }} / expected!("identifier")
 
@@ -189,7 +191,11 @@ peg::parser! { pub grammar fhdl() for str {
         }
     }
 
-    rule abstract_signal(ctx: &mut Strings) -> AbstractSignal =
+    rule abstract_signal_arith(ctx: &mut Strings) -> AbstractSignal =
+        _ "each" _ {AbstractSignal::Each} /
+        name:ident(ctx) {AbstractSignal::Signal(name)}
+
+    rule abstract_signal_decide(ctx: &mut Strings) -> AbstractSignal =
         _ "any" _ {AbstractSignal::Any} /
         _ "every" _ {AbstractSignal::Every} /
         _ "each" _ {AbstractSignal::Each} /

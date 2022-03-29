@@ -19,9 +19,7 @@ module register_bank (
     io[read_2_value] <- read_2[memory+0]
 
     number_of_registers = 32
-    #loop address from 1 to number_of_registers {
-        # tmp
-        address = 0
+    loop address from 1 to number_of_registers {
         net(green) memory [memory]
         # Memory loop
         memory[memory] <- memory[memory]
@@ -36,5 +34,5 @@ module register_bank (
         override[memory] <- (write_value_neg memory)[memory * -1]
         # Check trigger
         memory[memory] <- override[write_trigger == 1] value
-    #}
+    }
 }
