@@ -13,7 +13,9 @@ use model::Signal;
 fn main() -> Result<()> {
     let code = std::fs::read_to_string("test.fhdl").unwrap();
     let mut ctx = ast::Strings::default();
-    let module = &parse::fhdl::modules(&code, &mut ctx)?[0];
+    let modules = &parse::fhdl::modules(&code, &mut ctx)?;
+
+    let module = &modules[&ctx.intern("registers")];
 
     let mut combinators = Vec::new();
     let mut net_ids = HashMap::default();

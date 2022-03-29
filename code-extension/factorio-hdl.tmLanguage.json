@@ -8,6 +8,10 @@
 			"name": "comment.line"
 		},
 		{
+			"match": "if",
+			"name": "keyword"
+		},
+		{
 			"begin": "\\b(module)\\s+([A-Za-z_]\\w*)",
 			"end": "\\(",
 			"captures": {
@@ -80,6 +84,10 @@
 		{
 			"match": "<-",
 			"name": "keyword.operator.assignment"
+		},
+		{
+			"match": "\\(|\\)|\\[|\\]",
+			"name": "keyword.bracket"
 		},
 		{
 			"include": "#int"

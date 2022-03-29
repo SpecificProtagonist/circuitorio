@@ -7,7 +7,9 @@ peg::parser! { pub grammar fhdl() for str {
 
     rule _() = quiet!{[' ' | '\n' | '\t']* ("#"[^'\n']*"\n"?_)?}
 
-    pub rule modules(ctx: &mut Strings) -> Vec<Module> = module(ctx)*
+    pub rule modules(ctx: &mut Strings) -> HashMap<Ident,Module> = modules:module(ctx)* {
+        modules.into_iter().map(|m|(m.name,m)).collect()
+    }
 
     rule module(ctx: &mut Strings) -> Module =
         _ "module" name:ident(ctx)
@@ -78,12 +80,12 @@ peg::parser! { pub grammar fhdl() for str {
     rule decider(ctx: &mut Strings) -> Combinator =
         output:connector(ctx)
         "[" out:abstract_signal_decide(ctx) "]" _
-        "<-"
+        "<-" _
+        output_kind: $("value" / "one") _ "if" _
         input:connector(ctx)
         "[" left:abstract_signal_decide(ctx)
         op: decide_op()
         right:signal_or_const(ctx) "]" _
-        output_kind: $("value" / "one") _
         {?
             Ok(Combinator::Decider{
                 input,
@@ -157,7 +159,7 @@ peg::parser! { pub grammar fhdl() for str {
     }
 
     rule ident(ctx: &mut Strings) -> Ident =
-        quiet!{_ !("each"/"any"/"every") name:$(['a'..='z'| 'A'..='Z' | '_'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _
+        quiet!{_ !("if"/"each"/"any"/"every") name:$(['a'..='z'| 'A'..='Z' | '_'] ['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) _
     {
         ctx.intern(name)
     }} / expected!("identifier")
