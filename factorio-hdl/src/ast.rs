@@ -34,11 +34,18 @@ impl Index<Ident> for Strings {
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Ident(pub u32);
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum IOClass {
+    In,
+    Out,
+    InOut,
+}
+
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Network {
     pub name: Ident,
     pub color: Color,
-    pub signals: Vec<Ident>,
+    pub signals: HashMap<Ident, IOClass>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

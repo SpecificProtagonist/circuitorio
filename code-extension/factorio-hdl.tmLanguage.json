@@ -12,6 +12,27 @@
 			"name": "keyword"
 		},
 		{
+			"begin": "\\[",
+			"end": "\\]",
+			"patterns": [
+				{
+					"include": "#io_class"
+				},
+				{
+					"include": "#logical"
+				},
+				{
+					"include": "#ident"
+				},
+				{
+					"include": "#expr"
+				},
+				{
+					"include": "#bracket"
+				}
+			]
+		},
+		{
 			"begin": "\\b(module)\\s+([A-Za-z_]\\w*)",
 			"end": "\\(",
 			"captures": {
@@ -79,6 +100,9 @@
 			]
 		},
 		{
+			"include": "#bracket"
+		},
+		{
 			"include": "#arithmetic_op"
 		},
 		{
@@ -86,11 +110,14 @@
 			"name": "keyword.operator.assignment"
 		},
 		{
-			"match": "\\(|\\)|\\[|\\]",
-			"name": "keyword.bracket"
+			"match": "one|value",
+			"name": "constant"
 		},
 		{
 			"include": "#int"
+		},
+		{
+			"include": "#logical"
 		},
 		{
 			"include": "#ident"
@@ -109,6 +136,18 @@
 					"include": "#arithmetic_op"
 				}
 			]
+		},
+		"bracket": {
+			"match": "\\(|\\)|\\[|\\]",
+			"name": "keyword.bracket"
+		},
+		"io_class": {
+			"match": "in|out",
+			"name": "storage.modifier"
+		},
+		"logical": {
+			"match": "all|each|every",
+			"name": "keyword"
 		},
 		"ident": {
 			"match": "[a-zA-Z_]\\w*",

@@ -1,12 +1,12 @@
 module registers (
     net(red) io [
-        write_addr
-        write_value
-        write_trigger
-        read_1_addr
-        read_1_value
-        read_2_addr
-        read_2_value
+        write_addr(in)
+        write_value(in)
+        write_trigger(in)
+        read_1_addr(in)
+        read_1_value(out)
+        read_2_addr(in)
+        read_2_value(out)
     ]
 ) {
     net(red) write_value_neg [memory]

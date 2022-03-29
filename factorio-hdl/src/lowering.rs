@@ -1,7 +1,7 @@
 use crate::HashMap;
 use anyhow::{anyhow, bail, Context, Result};
 
-use crate::ast::{self, Expr, Ident, Loop, Statement, StatementInner, Strings};
+use crate::ast::{self, Expr, IOClass, Ident, Loop, Statement, StatementInner, Strings};
 use crate::interp;
 use crate::model::{self, Color, Signal};
 
@@ -156,11 +156,11 @@ fn lower_statement(
             }
         }
         StatementInner::Combinator(combinator) => {
-            // TODO: warning when using any/all/each on net with unknown signals
+            // TODO: error when using any/all/each on net with unknown signals
             match combinator {
                 ast::Combinator::Constant { output, out, value } => {
                     let connector = connector(ctx, &net_ids, &networks, *output)?;
-                    let signal = signal(ctx, &signal_ids, &networks, *output, *out)?;
+                    let signal = signal(ctx, &signal_ids, &networks, *output, false, *out)?;
                     let combinator = constants.entry(connector).or_default();
                     let slot = combinator.entry(signal).or_default();
                     let value = eval(ctx, &params, &value)?;
@@ -182,7 +182,7 @@ fn lower_statement(
                     let left =
                         match left {
                             ast::AbstractSignal::Signal(name) => model::AbstractSignal::Signal(
-                                signal(ctx, &signal_ids, &networks, *input, *name)?,
+                                signal(ctx, &signal_ids, &networks, *input, true, *name)?,
                             ),
                             ast::AbstractSignal::Each => model::AbstractSignal::Each,
                             _ => unreachable!(),
@@ -198,6 +198,7 @@ fn lower_statement(
                                     &signal_ids,
                                     &networks,
                                     *input,
+                                    true,
                                     *name,
                                 )?)
                             }
@@ -209,7 +210,7 @@ fn lower_statement(
                     let out =
                         match out {
                             ast::AbstractSignal::Signal(name) => model::AbstractSignal::Signal(
-                                signal(ctx, &signal_ids, &networks, *output, *name)?,
+                                signal(ctx, &signal_ids, &networks, *output, false, *name)?,
                             ),
                             ast::AbstractSignal::Each => {
                                 if left == model::AbstractSignal::Each {
@@ -244,7 +245,7 @@ fn lower_statement(
                     let left =
                         match left {
                             ast::AbstractSignal::Signal(name) => model::AbstractSignal::Signal(
-                                signal(ctx, &signal_ids, &networks, *input, *name)?,
+                                signal(ctx, &signal_ids, &networks, *input, true, *name)?,
                             ),
                             ast::AbstractSignal::Any => model::AbstractSignal::Any,
                             ast::AbstractSignal::Every => model::AbstractSignal::Every,
@@ -261,6 +262,7 @@ fn lower_statement(
                                     &signal_ids,
                                     &networks,
                                     *input,
+                                    true,
                                     *name,
                                 )?)
                             }
@@ -272,7 +274,7 @@ fn lower_statement(
                     let out =
                         match out {
                             ast::AbstractSignal::Signal(name) => model::AbstractSignal::Signal(
-                                signal(ctx, &signal_ids, &networks, *output, *name)?,
+                                signal(ctx, &signal_ids, &networks, *output, false, *name)?,
                             ),
                             ast::AbstractSignal::Any => {
                                 bail!("'any' is not yet implemented for output")
@@ -308,7 +310,7 @@ fn lower_statement(
             let id = model::Network(*max_net_id);
             net_ids.insert(net.name, id);
             networks.insert(net.name, net.clone());
-            for signal in &net.signals {
+            for (signal, _) in &net.signals {
                 if params.contains_key(signal) {
                     bail!("ambiguity between param and signal {}", &ctx[*signal])
                 }
@@ -388,11 +390,12 @@ fn signal(
     signals: &HashMap<Ident, Signal>,
     networks: &HashMap<Ident, ast::Network>,
     connector: ast::Connector,
+    is_input: bool,
     name: Ident,
 ) -> Result<Signal> {
-    if !networks[&connector.0].signals.contains(&name) {
+    if !networks[&connector.0].signals.contains_key(&name) {
         if let Some(net) = connector.1 {
-            if !networks[&net].signals.contains(&name) {
+            if !networks[&net].signals.contains_key(&name) {
                 bail!(
                     "networks {} and {} do not contain signal {}",
                     &ctx[connector.0],
@@ -408,6 +411,26 @@ fn signal(
             )
         }
     }
+
+    let io_class_valid = |class: Option<&IOClass>| match class {
+        Some(IOClass::In) => is_input,
+        Some(IOClass::Out) => !is_input,
+        _ => true,
+    };
+    if !io_class_valid(networks[&connector.0].signals.get(&name))
+        | !io_class_valid(
+            connector
+                .1
+                .map(|n| networks[&n].signals.get(&name))
+                .flatten(),
+        )
+    {
+        bail!(
+            "tried to {} signal with mismatching io class",
+            if is_input { "read" } else { "write" }
+        )
+    }
+
     signals
         .get(&name)
         .copied()

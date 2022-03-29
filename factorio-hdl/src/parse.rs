@@ -14,7 +14,7 @@ peg::parser! { pub grammar fhdl() for str {
     rule module(ctx: &mut Strings) -> Module =
         _ "module" name:ident(ctx)
         params:("<" items:ident(ctx)* ">" _ {items})?
-        "(" io:net_decl(ctx)* ")" _
+        "(" io:module_net_decl(ctx)* ")" _
         body: block(ctx)
     {
         let mut args = HashMap::default();
@@ -27,6 +27,18 @@ peg::parser! { pub grammar fhdl() for str {
             args,
             body,
         }
+    }
+
+    rule module_net_decl(ctx: &mut Strings) -> Network =
+        _ "net" _ "(" color:color() ")" name:ident(ctx) "[" signals:module_signal(ctx)+ "]" _
+    {
+        Network{name, color, signals: signals.into_iter().collect()}
+    }
+
+    rule module_signal(ctx: &mut Strings) -> (Ident, IOClass) =
+        name:ident(ctx) io:("(" _ io:("in"{IOClass::In}/"out"{IOClass::Out}) _ ")" _ {io})?
+    {
+        (name, io.unwrap_or(IOClass::InOut))
     }
 
     rule block(ctx: &mut Strings) -> Vec<Statement> = _ "{" items:statement(ctx)* "}" _ {
@@ -47,7 +59,8 @@ peg::parser! { pub grammar fhdl() for str {
     rule net_decl(ctx: &mut Strings) -> Network =
         _ "net" _ "(" color:color() ")" name:ident(ctx) "[" signals:ident(ctx)+ "]" _
     {
-        Network{name, color, signals}
+        let signals = signals.into_iter().map(|s|(s,IOClass::InOut)).collect();
+        Network{name, color, signals }
     }
 
     rule param_decl(ctx: &mut Strings) -> StatementInner =
