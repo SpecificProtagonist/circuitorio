@@ -3,9 +3,10 @@ mod interp;
 mod lowering;
 mod model;
 mod parse;
-// Add just in time compilation just for fun? (requires restriction on logical signals first)
+// Add just in time compilation just for fun?
 
 pub use rustc_hash::FxHashMap as HashMap;
+pub use rustc_hash::FxHashSet as HashSet;
 
 use anyhow::Result;
 use model::Signal;
@@ -14,8 +15,6 @@ fn main() -> Result<()> {
     let code = std::fs::read_to_string("test.fhdl").unwrap();
     let mut ctx = ast::Strings::default();
     let modules = &parse::fhdl::modules(&code, &mut ctx)?;
-
-    let module = &modules[&ctx.intern("registers")];
 
     let mut combinators = Vec::new();
     let mut net_ids = HashMap::default();
@@ -31,12 +30,13 @@ fn main() -> Result<()> {
     let mut max_net_id = 6;
 
     lowering::lower(
-        &module,
+        &code,
+        modules,
+        ctx.intern("registers"),
         vec![],
         net_ids,
         signals,
         &ctx,
-        &code,
         &mut combinators,
         &mut max_net_id,
     )?;

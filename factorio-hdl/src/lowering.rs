@@ -1,22 +1,26 @@
 use crate::HashMap;
 use anyhow::{anyhow, bail, Context, Result};
 
-use crate::ast::{self, Expr, IOClass, Ident, Loop, Statement, StatementInner, Strings};
+use crate::ast::{self, Expr, IOClass, Ident, Loop, Module, Statement, StatementInner, Strings};
 use crate::interp;
 use crate::model::{self, Color, Signal};
 
 const MAX_SIGNALS_PER_CONST_COMBINATOR: usize = 15;
 
 pub fn lower(
-    module: &ast::Module,
+    code: &str,
+    modules: &HashMap<Ident, Module>,
+    module: Ident,
     params: Vec<i32>,
     net_ids: HashMap<Ident, model::Network>,
     signal_ids: HashMap<Ident, model::Signal>,
     ctx: &Strings,
-    code: &str,
     combinators: &mut Vec<model::Combinator>,
     max_net_id: &mut u32,
 ) -> Result<()> {
+    let module = modules
+        .get(&module)
+        .ok_or_else(|| anyhow!("module {} not found", &ctx[module]))?;
     // kept sorted to allow finding the lowest free signal
     let mut signals: Vec<Signal> = signal_ids.values().copied().collect();
     signals.sort_unstable();
@@ -49,6 +53,8 @@ pub fn lower(
     lower_block(
         &module.body,
         code,
+        modules,
+        module,
         ctx,
         combinators,
         &mut constants,
@@ -73,6 +79,8 @@ pub fn lower(
 fn lower_block(
     statements: &[Statement],
     code: &str,
+    modules: &HashMap<Ident, Module>,
+    module: &Module,
     ctx: &Strings,
     combinators: &mut Vec<model::Combinator>,
     constants: &mut HashMap<model::Connector, HashMap<Signal, i32>>,
@@ -87,6 +95,8 @@ fn lower_block(
         lower_statement(
             stm,
             code,
+            modules,
+            module,
             ctx,
             combinators,
             constants,
@@ -115,6 +125,8 @@ fn lower_block(
 fn lower_statement(
     stm: &Statement,
     code: &str,
+    modules: &HashMap<Ident, Module>,
+    module: &Module,
     ctx: &Strings,
     combinators: &mut Vec<model::Combinator>,
     constants: &mut HashMap<model::Connector, HashMap<Signal, i32>>,
@@ -126,8 +138,46 @@ fn lower_statement(
     max_net_id: &mut u32,
 ) -> Result<()> {
     match &stm.inner {
-        StatementInner::Block(_) => todo!(),
-        StatementInner::Instance(_) => todo!(),
+        StatementInner::Block(body) => {
+            lower_block(
+                body,
+                code,
+                modules,
+                module,
+                ctx,
+                combinators,
+                constants,
+                params.clone(),
+                net_ids.clone(),
+                networks.clone(),
+                signal_ids.clone(),
+                signals.clone(),
+                max_net_id,
+            )?;
+        }
+        StatementInner::Instance(instance) => {
+            // TODO: check if the call stack includes this module with the same parameters
+            let mut instance_signal_ids = HashMap::default();
+            let mut instance_net_ids = net_ids.clone();
+            for arg in &instance.args {
+                todo!()
+            }
+            lower(
+                code,
+                modules,
+                instance.name,
+                instance
+                    .params
+                    .iter()
+                    .map(|e| eval(ctx, params, e))
+                    .collect::<Result<_>>()?,
+                instance_net_ids,
+                instance_signal_ids,
+                ctx,
+                combinators,
+                max_net_id,
+            )?;
+        }
         StatementInner::Loop(Loop {
             iter,
             min,
@@ -143,6 +193,8 @@ fn lower_statement(
                 lower_block(
                     body,
                     code,
+                    modules,
+                    module,
                     ctx,
                     combinators,
                     constants,
@@ -156,7 +208,6 @@ fn lower_statement(
             }
         }
         StatementInner::Combinator(combinator) => {
-            // TODO: error when using any/all/each on net with unknown signals
             match combinator {
                 ast::Combinator::Constant { output, out, value } => {
                     let connector = connector(ctx, &net_ids, &networks, *output)?;
@@ -184,7 +235,14 @@ fn lower_statement(
                             ast::AbstractSignal::Signal(name) => model::AbstractSignal::Signal(
                                 signal(ctx, &signal_ids, &networks, *input, true, *name)?,
                             ),
-                            ast::AbstractSignal::Each => model::AbstractSignal::Each,
+                            ast::AbstractSignal::Each => {
+                                if module.args.contains_key(&input.0)
+                                    | input.1.map_or(false, |n| module.args.contains_key(&n))
+                                {
+                                    bail!("Cannot use logical signal on module argument as input")
+                                }
+                                model::AbstractSignal::Each
+                            }
                             _ => unreachable!(),
                         };
                     let right = match right {
@@ -214,6 +272,7 @@ fn lower_statement(
                             ),
                             ast::AbstractSignal::Each => {
                                 if left == model::AbstractSignal::Each {
+                                    check_logical(networks, *input, *output)?;
                                     model::AbstractSignal::Each
                                 } else {
                                     bail!("'each' output requires 'each' input")
@@ -277,16 +336,23 @@ fn lower_statement(
                                 signal(ctx, &signal_ids, &networks, *output, false, *name)?,
                             ),
                             ast::AbstractSignal::Any => {
+                                check_logical(networks, *input, *output)?;
                                 bail!("'any' is not yet implemented for output")
                             }
                             ast::AbstractSignal::Every => match left {
                                 model::AbstractSignal::Each => {
                                     bail!("'every' output incompatible with 'each' input")
                                 }
-                                _ => model::AbstractSignal::Every,
+                                _ => {
+                                    check_logical(networks, *input, *output)?;
+                                    model::AbstractSignal::Every
+                                }
                             },
                             ast::AbstractSignal::Each => match left {
-                                model::AbstractSignal::Each => model::AbstractSignal::Each,
+                                model::AbstractSignal::Each => {
+                                    check_logical(networks, *input, *output)?;
+                                    model::AbstractSignal::Each
+                                }
                                 _ => bail!("'each' output requires 'each' input"),
                             },
                         };
@@ -338,6 +404,27 @@ fn lower_statement(
         }
     }
 
+    Ok(())
+}
+
+fn check_logical(
+    networks: &HashMap<Ident, ast::Network>,
+    input: ast::Connector,
+    output: ast::Connector,
+) -> Result<()> {
+    for signal in networks[&input.0]
+        .signals
+        .keys()
+        .chain(input.1.iter().flat_map(|n| networks[n].signals.keys()))
+    {
+        if !networks[&output.0].signals.contains_key(signal)
+            | !output
+                .1
+                .map_or(true, |n| networks[&n].signals.contains_key(signal))
+        {
+            bail!("every/each output used, but output networks do not contain all input network signals")
+        }
+    }
     Ok(())
 }
 
