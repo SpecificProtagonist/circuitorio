@@ -1,0 +1,26 @@
+workable api
+
+blueprint export
+
+documentation
+
+integration tests
+
+language features
+- signal arrays
+- instance network color swapping when required
+- any as decider output
+- unused networks/signals warning
+
+repl
+- load source code
+- define, read & set networks/signals
+- instantiate modules
+- step, maybe reverse step
+
+module testing hooks
+- trait objects that model a module
+- compare outputs
+
+jit
+- cranelift? try my hand at machine code?

@@ -1,0 +1,14 @@
+# After 2 ticks, starts outputing the factorial series
+module factorial(
+    net(red) out[x(out) fact_x(out)]
+) {
+    net(green) counter[x]
+    net(red) acc[fact_x]
+    counter[x] <- counter[x+1]
+    acc[fact_x] <- one if counter[x==0]
+    acc[fact_x] <- (acc counter)[fact_x * x]
+
+    out[x] <- counter[x]
+    out[x] <- -1
+    out[fact_x] <- acc[fact_x]
+}

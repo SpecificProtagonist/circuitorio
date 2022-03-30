@@ -12,7 +12,7 @@ pub fn lower(
     modules: &HashMap<Ident, Module>,
     module: Ident,
     params: Vec<i32>,
-    net_ids: HashMap<Ident, model::Network>,
+    args: Vec<model::Network>,
     signal_ids: HashMap<Ident, model::Signal>,
     ctx: &Strings,
     combinators: &mut Vec<model::Combinator>,
@@ -20,7 +20,7 @@ pub fn lower(
 ) -> Result<()> {
     let module = modules
         .get(&module)
-        .ok_or_else(|| anyhow!("module {} not found", &ctx[module]))?;
+        .ok_or_else(|| anyhow!("undefined module {}", &ctx[module]))?;
     // kept sorted to allow finding the lowest free signal
     let mut signals: Vec<Signal> = signal_ids.values().copied().collect();
     signals.sort_unstable();
@@ -36,6 +36,21 @@ pub fn lower(
         }
         for i in 0..params.len() {
             map.insert(module.params[i], params[i]);
+        }
+        map
+    };
+
+    let net_ids = {
+        let mut map = HashMap::default();
+        if args.len() != module.args.len() {
+            bail!(
+                "expected {} arguments, got {}",
+                module.args.len(),
+                args.len()
+            )
+        }
+        for i in 0..args.len() {
+            map.insert(module.args[i].name, args[i]);
         }
         map
     };
@@ -60,7 +75,7 @@ pub fn lower(
         &mut constants,
         params,
         net_ids,
-        module.args.clone(),
+        module.args.iter().map(|n| (n.name, n.clone())).collect(),
         signal_ids,
         signals,
         max_net_id,
@@ -157,10 +172,78 @@ fn lower_statement(
         }
         StatementInner::Instance(instance) => {
             // TODO: check if the call stack includes this module with the same parameters
+            let module = modules
+                .get(&instance.name)
+                .ok_or_else(|| anyhow!("undefined module {}", &ctx[instance.name]))?;
+            let mut instance_net_ids = Vec::new();
             let mut instance_signal_ids = HashMap::default();
-            let mut instance_net_ids = net_ids.clone();
-            for arg in &instance.args {
-                todo!()
+            let mut signal_map = HashMap::default();
+            for (arg_num, arg) in instance.args.iter().enumerate() {
+                let net_local = networks
+                    .get(&arg.name)
+                    .ok_or_else(|| anyhow!("undefined network {}", &ctx[arg.name]))?;
+                let net_arg = module
+                    .args
+                    .get(arg_num)
+                    .ok_or_else(|| anyhow!("too many arguments"))?;
+
+                if net_local.color != net_arg.color {
+                    bail!(
+                        "color mismatch for network {} (function argument {})",
+                        &ctx[net_local.name],
+                        &ctx[net_arg.name]
+                    )
+                }
+
+                instance_net_ids.push(net_ids[&arg.name]);
+
+                for (signal_arg, signal_local) in &arg.signal_map {
+                    // Validate signal mapping
+                    if !net_local.signals.contains_key(signal_local) {
+                        bail!(
+                            "undefined signal {} in network {}",
+                            &ctx[*signal_local],
+                            &ctx[net_local.name]
+                        )
+                    }
+                    if !net_arg.signals.contains_key(signal_arg) {
+                        bail!(
+                            "undefined function arg signal {} in network {}",
+                            &ctx[*signal_arg],
+                            &ctx[net_arg.name]
+                        )
+                    }
+                    if signal_map.get(signal_local).unwrap_or(signal_arg) != signal_arg {
+                        bail!(
+                            "signal {} provided for two different argument signals",
+                            &ctx[*signal_local]
+                        )
+                    }
+                    signal_map.insert(*signal_local, *signal_arg);
+                    let id = *signal_ids
+                        .get(signal_local)
+                        .ok_or_else(|| anyhow!("undefined signal {}", &ctx[*signal_local]))?;
+                    if *instance_signal_ids.get(signal_arg).unwrap_or(&id) != id {
+                        bail!(
+                            "two different signals provided for argument signal {}",
+                            &ctx[*signal_arg]
+                        )
+                    }
+                    if !matches!(
+                        (net_local.signals[signal_local], net_arg.signals[signal_arg]),
+                        (IOClass::In, IOClass::In)
+                            | (IOClass::Out, IOClass::In)
+                            | (IOClass::InOut, _),
+                    ) {
+                        bail!(
+                            "io class mismatch for {}: {}",
+                            &ctx[*signal_arg],
+                            &ctx[*signal_local]
+                        )
+                    }
+                    // Everything valid
+                    instance_signal_ids.insert(*signal_arg, id);
+                }
             }
             lower(
                 code,
@@ -208,6 +291,9 @@ fn lower_statement(
             }
         }
         StatementInner::Combinator(combinator) => {
+            // TODO: error on using a signal from a local network together
+            // with a arg network that doesn't contain the signal
+            // (allow via new clobber attribute?)
             match combinator {
                 ast::Combinator::Constant { output, out, value } => {
                     let connector = connector(ctx, &net_ids, &networks, *output)?;
@@ -236,8 +322,10 @@ fn lower_statement(
                                 signal(ctx, &signal_ids, &networks, *input, true, *name)?,
                             ),
                             ast::AbstractSignal::Each => {
-                                if module.args.contains_key(&input.0)
-                                    | input.1.map_or(false, |n| module.args.contains_key(&n))
+                                if module.args.iter().find(|n| n.name == input.0).is_none()
+                                    | input.1.map_or(false, |n| {
+                                        module.args.iter().find(|net| net.name == n).is_none()
+                                    })
                                 {
                                     bail!("Cannot use logical signal on module argument as input")
                                 }
@@ -512,10 +600,11 @@ fn signal(
                 .flatten(),
         )
     {
-        bail!(
-            "tried to {} signal with mismatching io class",
-            if is_input { "read" } else { "write" }
-        )
+        if is_input {
+            bail!("tried to read signal {} with io class out", &ctx[name])
+        } else {
+            bail!("tried to write signal {} with io class in", &ctx[name])
+        }
     }
 
     signals

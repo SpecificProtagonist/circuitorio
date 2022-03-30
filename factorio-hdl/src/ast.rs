@@ -1,6 +1,5 @@
-use crate::model::{ArithOp, DecideOp};
-// TODO: faster hasher
 pub use crate::model::Color;
+use crate::model::{ArithOp, DecideOp};
 use crate::HashMap;
 use std::ops::Index;
 
@@ -100,7 +99,7 @@ pub enum Combinator {
 pub struct Module {
     pub name: Ident,
     pub params: Vec<Ident>,
-    pub args: HashMap<Ident, Network>,
+    pub args: Vec<Network>,
     pub body: Vec<Statement>,
 }
 

@@ -3,7 +3,7 @@ use crate::HashMap;
 use crate::ast::*;
 use crate::model::{ArithOp, Color, DecideOp};
 
-peg::parser! { pub grammar fhdl() for str {
+peg::parser! { pub(crate) grammar fhdl() for str {
 
     rule _() = quiet!{[' ' | '\n' | '\t']* ("#"[^'\n']*"\n"?_)?}
 
@@ -14,13 +14,9 @@ peg::parser! { pub grammar fhdl() for str {
     rule module(ctx: &mut Strings) -> Module =
         _ "module" name:ident(ctx)
         params:("<" items:ident(ctx)* ">" _ {items})?
-        "(" io:module_net_decl(ctx)* ")" _
+        "(" args:module_net_decl(ctx)* ")" _
         body: block(ctx)
     {
-        let mut args = HashMap::default();
-        for net in io {
-            args.insert(net.name, net);
-        }
         Module {
             name: name,
             params: params.unwrap_or_default(),
