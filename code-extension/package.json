@@ -1,7 +1,7 @@
 {
-    "name": "factorio-hdl",
-    "displayName": "factorio-hdl",
-    "description": "Syntax highlighting for factorio-hdl",
+    "name": "circuitorio",
+    "displayName": "Circuitorio",
+    "description": "Syntax highlighting for circuitorio",
     "version": "0.0.1",
     "engines": {
         "vscode": "^1.65.0"
@@ -12,10 +12,9 @@
     "contributes": {
         "languages": [
             {
-                "id": "factorio-hdl",
+                "id": "circuitorio",
                 "aliases": [
-                    "Factorio-HDL",
-                    "factorio-hdl"
+                    "Circuitorio"
                 ],
                 "extensions": [
                     "fhdl"
@@ -25,9 +24,9 @@
         ],
         "grammars": [
             {
-                "language": "factorio-hdl",
-                "scopeName": "source.factorio-hdl",
-                "path": "./factorio-hdl.tmLanguage.json"
+                "language": "circuitorio",
+                "scopeName": "source.circuitorio",
+                "path": "./circuitorio.tmLanguage.json"
             }
         ]
     }

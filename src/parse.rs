@@ -229,7 +229,7 @@ peg::parser! { pub(crate) grammar fhdl() for str {
         left:expr_part(ctx) "&" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
         left:expr_part(ctx) "|" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
         left:expr_part(ctx) "^" right:expr_part(ctx) {Expr::Calc(left.into(), right.into(), ArithOp::Sub)} /
-        expr_atom(ctx)
+        expr_part(ctx)
 
     rule expr_part(ctx: &mut Strings) -> Expr =
         _ "(" expr:expr(ctx) ")" _ {expr} /

@@ -4,13 +4,17 @@ blueprint export
 
 documentation
 
+better error messages
+
 integration tests
 
 language features
+- submodules & top level statements
 - signal arrays
-- instance network color swapping when required
-- any as decider output
+- arbitrary-color-networks; instance network color swapping when required
+- any as decider output, constant as left side
 - unused networks/signals warning
+- try stuff out, check out other peoples stuff and think about how to improve composition
 
 repl
 - load source code
